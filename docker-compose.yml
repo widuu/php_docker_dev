@@ -1,0 +1,232 @@
+version: '3'
+services:
+  nginx:
+    image: "nginx:latest"
+    container_name: nginx
+    restart: always
+    ports:
+      - ${NGINX_PORT}:80
+      - ${NGINX_PORT_SSL}:443
+    volumes:
+      - ./www:/var/www:rw
+      - ./services/nginx/etc/conf.d:/etc/nginx/conf.d:rw
+      - ./services/nginx/etc/php73.conf:/etc/nginx/php73.conf
+      - ./services/nginx/etc/php82.conf:/etc/nginx/php82.conf
+      - ./services/nginx/etc/fastcgi.conf:/etc/nginx/fastcgi.conf
+      - ./services/nginx/etc/pathinfo.conf:/etc/nginx/pathinfo.conf
+    networks:
+      - dev
+    depends_on:
+      - php73
+      - php82
+      - mysql
+      - redis
+  
+  # env 中设置版本和构建版本
+  mysql:
+    container_name: mysql${MYSQL_USE_VERSION}
+    restart: always
+    build:
+      context: ./services/mysql
+      dockerfile: Dockerfile
+      args:
+        - "MYSQL_BUILD_VERSION=${MYSQL_BUILD_VERSION}"
+        - "MYSQL_CNF_VERSION=${MYSQL_USE_VERSION}"
+    ports:
+      - ${MYSQL_PORT}:3306
+    volumes:
+      - ./services/mysql/data:/var/lib/mysql
+    networks:
+      - dev
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASS}
+      - MYSQL_ROOT_HOST=%
+      - TZ=Asia/Shanghai
+    privileged: true
+  
+  php73:
+    container_name: php73
+    build: ./services/php73
+    restart: always
+    ports:
+      - ${PHP73_PORT}:9000
+      - 9501:9501  # swoole 使用
+    volumes:
+      - ./www:/var/www
+    networks:
+      - dev
+    environment:
+      - TZ=Asia/Shanghai
+    depends_on:
+      - redis
+      - mysql
+  
+  php82:
+    container_name: php82
+    build: ./services/php82
+    restart: always
+    ports:
+      - ${PHP82_PORT}:9000
+      - 9502:9501 # swoole 使用
+    volumes:
+      - ./www:/var/www
+    networks:
+      - dev
+    environment:
+      - TZ=Asia/Shanghai
+    depends_on:
+      - redis
+      - mysql
+  
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: always
+    ports:
+      - ${REDIS_PORT}:6379
+    volumes:
+      - ./services/redis/data:/data:rw
+    networks:
+      - dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      retries: 3
+      timeout: 5s
+
+  # 使用nsq队列 --profile mongo
+  mongo:
+    image: mongo:latest
+    container_name: mongo
+    restart: always
+    profiles:
+      - mongo
+    ports:
+      - "${MONGO_PORT}:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=root
+    networks:
+      - dev
+    volumes:
+      - ./services/mongo/db:/data/db
+
+  # 使用nsq队列 --profile pgsql
+  pgsql:
+    image: postgres:16.0-alpine3.18
+    container_name: pgsql
+    restart: always
+    profiles:
+      - pgsql
+    environment:
+      - POSTGRES_PASSWORD=${PGSQL_PASSWD}
+      - PGDATA=/var/lib/postgresql/data
+    networks:
+      - dev
+    ports:
+      - "${PGSQL_PORT}:5432"
+    volumes:
+      - ./services/pgsql/data:/var/lib/postgresql/data
+  
+  # 使用nsq队列 --profile elastic
+  elasticsearch:
+    image: elasticsearch:7.12.1
+    container_name: elasticsearch
+    profiles:
+      - elastic
+    environment:
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - discovery.type=single-node
+    volumes:
+      - ./services/elastic/data:/usr/share/elasticsearch/data
+      - ./services/elastic/plugins:/usr/share/elasticsearch/plugin
+    ports:
+      - ${ELASTIC_HOSTS_PORT}:9200
+      - ${ELASTIC_TCP_PORT}:9300
+
+  # 使用nsq队列 --profile nsq
+  nsqlookupd:
+    image: nsqio/nsq
+    container_name: nsqlookupd
+    profiles:
+      - nsq
+    command: /nsqlookupd
+    networks:
+      - dev
+    ports:
+      - "4160:4160"
+      - "4161:4161"
+
+  nsqd:
+    image: nsqio/nsq
+    container_name: nsq
+    profiles:
+      - nsq
+    command: /nsqd --lookupd-tcp-address=nsqlookupd:4160
+    networks:
+      - dev
+    depends_on:
+      - nsqlookupd
+    ports:
+      - "4150:4150"
+      - "4151:4151"
+
+  nsqadmin:
+    image: nsqio/nsq
+    container_name: nsqadmin
+    profiles:
+      - nsq
+    command: /nsqadmin --lookupd-http-address=nsqlookupd:4161
+    networks:
+      - dev
+    depends_on:
+      - nsqlookupd  
+    ports:
+      - "4171:4171"
+
+  # --profile minio 添加minio服务
+  minio:
+    image: 'minio/minio:latest'
+    container_name: minio
+    profiles:
+      - minio
+    ports:
+        - '${FORWARD_MINIO_PORT}:9000'
+        - '${FORWARD_MINIO_CONSOLE_PORT}:8900'
+    environment:
+        MINIO_ROOT_USER: '${MINIO_USER}'
+        MINIO_ROOT_PASSWORD: '${MINIO_PASS}'
+    volumes:
+        - './services/minio:/data/minio'
+    networks:
+        - dev
+    command: minio server /data/minio --console-address ":8900"
+    healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+        retries: 3
+        timeout: 5s
+
+  # --profile mariadb 添加mariadb服务
+  mariadb:
+    image: 'mariadb:10'
+    container_name: mariadb
+    restart: always
+    profiles:
+      - mariadb
+    ports:
+        - '${FORWARD_DB_PORT}:3306'
+    environment:
+        MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
+        MYSQL_ROOT_HOST: "%"
+        MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+    volumes:
+        - './services/mariadb:/var/lib/mysql'
+    networks:
+        - dev
+    healthcheck:
+        test: ["CMD", "mysqladmin", "ping", "-p${DB_PASSWORD}"]
+        retries: 3
+        timeout: 5s
+
+networks:
+  dev:
+    driver: bridge

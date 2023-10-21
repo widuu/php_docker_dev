@@ -1,6 +1,8 @@
 FROM php:7.3.33-fpm
 
 COPY ./etc/swoole.ini /usr/local/etc/php/conf.d/swoole.ini
+COPY ./protoc /usr/local/bin
+COPY ./grpc_php_plugin /usr/local/bin
 # 更改为阿里云镜像
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list \
     && apt-get update && apt-get install -y \

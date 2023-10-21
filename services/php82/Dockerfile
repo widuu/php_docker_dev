@@ -1,6 +1,8 @@
 FROM php:8.2.11-fpm
 
 COPY ./etc/swoole.ini /usr/local/etc/php/conf.d/swoole.ini
+COPY ./protoc /usr/local/bin
+COPY ./grpc_php_plugin /usr/local/bin
 # 更改为阿里云镜像
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update && apt-get install -y \
@@ -33,15 +35,21 @@ RUN rm -rf /var/lib/apt/lists/* \
     && docker-php-ext-install mysqli \
     && docker-php-ext-install pdo_mysql \
     && docker-php-ext-install bcmath \
-    && docker-php-ext-install mbstring \
-    && pecl install protobuf \
+    && docker-php-ext-install mbstring
+
+RUN  pecl install protobuf \
     && docker-php-ext-enable protobuf
+
+RUN pecl install grpc \
+    && docker-php-ext-enable grpc
 
 RUN pecl install redis \
     && docker-php-ext-enable redis \
     && pecl install zip \
-    && docker-php-ext-enable zip \
-    && pecl install mongodb \
+    && docker-php-ext-enable zip
+
+
+RUN pecl install mongodb \
     && docker-php-ext-enable mongodb
 
 RUN mkdir -p ~/build \

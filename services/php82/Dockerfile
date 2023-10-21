@@ -14,7 +14,8 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     libzip-dev \
     libonig-dev \ 
     zip \
-    wget
+    wget \
+    git
 
 # 需要openssl扩展取消以下注释-begin
 RUN rm -rf /var/lib/apt/lists/* \

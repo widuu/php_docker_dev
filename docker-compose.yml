@@ -185,7 +185,7 @@ services:
 
   # --profile minio 添加minio服务
   minio:
-    image: 'minio/minio:latest'
+    image: 'quay.io/minio/minio:latest'
     container_name: minio
     profiles:
       - minio
